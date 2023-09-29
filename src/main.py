@@ -1,8 +1,14 @@
+import logging
 import streamlit as st
 # import streamlit_ext as ste
 import os
 import openai
 from prompts import SYSTEM_PROMPT, USER_PROMPT,JOB_TEXT_PLACEHOLDER, RESUME_TEXT_PLACEHOLDER
+
+# logging
+logging.basicConfig(level=logging.WARNING) # set root level logger to warning
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
 
 # app frontend
 st.set_page_config(
@@ -52,11 +58,11 @@ with st.form("input"):
     submitted = st.form_submit_button("Submit")
 
 if submitted and resume_text and job_text:
-    # TODO: add debug logs
     filled_prompt = (USER_PROMPT
                      .replace(RESUME_TEXT_PLACEHOLDER, resume_text)
                      .replace(JOB_TEXT_PLACEHOLDER, job_text)
                      )
+    logger.debug(filled_prompt) # inspect prompt
 
     # openai stuff
     try:

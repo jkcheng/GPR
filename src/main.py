@@ -47,7 +47,7 @@ st.markdown(
 api_key = os.getenv("OPENAI_API_KEY")
 
 
-resume = st.file_uploader("Choose a file", type=["pdf"])
+resume = st.file_uploader("Choose a file", type=["pdf", "docx", "txt", "rtf"])
 if resume:
     resume_text = extract_text_file(resume)
 else:

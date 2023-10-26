@@ -3,8 +3,9 @@ import streamlit as st
 # import streamlit_ext as ste
 import os
 import openai
-from prompts import SYSTEM_PROMPT, USER_PROMPT,JOB_TEXT_PLACEHOLDER, RESUME_TEXT_PLACEHOLDER
+from prompts import * #SYSTEM_PROMPT_REC, USER_PROMPT_REC,JOB_TEXT_PLACEHOLDER, RESUME_TEXT_PLACEHOLDER
 from doc_utils import extract_text_file
+import json
 
 # logging
 logging.basicConfig(level=logging.WARNING) # set root level logger to warning
@@ -51,6 +52,7 @@ resume = st.file_uploader("Choose a file", type=["pdf", "docx", "txt", "rtf"])
 if resume:
     resume_text = extract_text_file(resume)
 else:
+    st.write("**OR**")
     resume_text = st.text_area("Enter Resume:", height=200)
 
 if not resume and not resume_text:
@@ -71,24 +73,49 @@ if resume_text:
         submitted = st.form_submit_button("Submit")
 
     if submitted and resume_text and job_text:
-        filled_prompt = (USER_PROMPT
-                         .replace(RESUME_TEXT_PLACEHOLDER, resume_text)
-                         .replace(JOB_TEXT_PLACEHOLDER, job_text)
-                         )
-        logger.debug(filled_prompt) # inspect prompt
+        summary_prompt = (USER_PROMPT_SUMM
+                          .replace(JOB_TEXT_PLACEHOLDER, job_text)
+                          )
+        logger.debug(summary_prompt)
 
-        # openai stuff
+        # openai
         try:
             with st.spinner(text="Asking openAI..."):
                 response = openai.ChatCompletion.create(
                     model="gpt-3.5-turbo",
                     messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": filled_prompt},
+                        {"role": "system", "content": SYSTEM_PROMPT_SUMM},
+                        {"role": "user", "content": summary_prompt},
                     ],
                     api_key=api_key
                 )
-            answer = response["choices"][0]["message"]["content"]
+                answer = response["choices"][0]["message"]["content"]
+                answer = json.loads(answer)
+
+                # parse answer for job description parts
+                job_company = answer["company"]
+                job_position = answer["position"]
+                job_duties = answer["duties"]
+                job_requirements = answer["requirements"]
+
+                rec_prompt = (USER_PROMPT_REC
+                              .replace(RESUME_TEXT_PLACEHOLDER, resume_text)
+                              .replace(JOB_COMPANY_TEXT_PLACEHOLDER, job_company)
+                              .replace(JOB_POSITION_TEXT_PLACEHOLDER, job_position)
+                              .replace(JOB_DUTIES_TEXT_PLACEHOLDER, '  \n'.join(job_duties))
+                              .replace(JOB_REQUIREMENTS_TEXT_PLACEHOLDER, '  \n'.join(job_requirements))
+                              )
+                logger.debug(rec_prompt)
+
+                response_rec = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT_REC},
+                        {"role": "user", "content": rec_prompt},
+                    ],
+                    api_key=api_key
+                )
+            answer = response_rec["choices"][0]["message"]["content"]
             st.write(answer)
         except openai.error.RateLimitError as e:
             st.markdown(

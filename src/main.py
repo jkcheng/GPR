@@ -6,13 +6,117 @@ from openai import OpenAI, RateLimitError
 from prompts import * #SYSTEM_PROMPT_REC, USER_PROMPT_REC,JOB_TEXT_PLACEHOLDER, RESUME_TEXT_PLACEHOLDER
 from doc_utils import extract_text_file
 import json
+import redis
 
 # logging
 logging.basicConfig(level=logging.WARNING) # set root level logger to warning
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.WARNING)
+logger.setLevel(logging.DEBUG)
 
-# app frontend
+# redis db
+host = "localhost"
+redis_port = 6379
+
+r = redis.Redis(
+    host=host,
+    port=redis_port,
+    decode_responses=True,
+)
+
+def set_data(key, text):
+    r.set(key, text)
+
+
+def load_data(user):
+    db_value = r.get(user)
+    try:
+        return str(db_value)
+    except TypeError:
+        return None
+
+def ask_openai_chatcompletion(summary_prompt, resume_text):
+    with st.spinner(text="Asking openAI..."):
+        # get summary of job desc from openAI
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT_SUMM},
+                {"role": "user", "content": summary_prompt},
+            ],
+            api_key=api_key
+        )
+        answer = response["choices"][0]["message"]["content"]
+        answer = json.loads(answer)
+
+        # parse answer for job description parts
+        job_company = answer["company"]
+        job_position = answer["position"]
+        job_duties = answer["duties"]
+        job_requirements = answer["requirements"]
+
+        # build rec prompt
+        rec_prompt = (USER_PROMPT_REC
+                      .replace(RESUME_TEXT_PLACEHOLDER, resume_text)
+                      .replace(JOB_COMPANY_TEXT_PLACEHOLDER, job_company)
+                      .replace(JOB_POSITION_TEXT_PLACEHOLDER, job_position)
+                      .replace(JOB_DUTIES_TEXT_PLACEHOLDER, '  \n'.join(job_duties))
+                      .replace(JOB_REQUIREMENTS_TEXT_PLACEHOLDER, '  \n'.join(job_requirements))
+                      )
+        logger.debug(rec_prompt)
+
+        response_rec = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT_REC},
+                {"role": "user", "content": rec_prompt},
+            ],
+            api_key=api_key
+        )
+    answer = response_rec["choices"][0]["message"]["content"]
+    return answer
+
+# def ask_openai_assistant(summary_prompt, resume_text):
+#     with st.spinner(text="Asking openAI Assistant..."):
+#         # get summary of job desc from openAI
+#         response = openai.ChatCompletion.create(
+#             model="gpt-3.5-turbo",
+#             messages=[
+#                 {"role": "system", "content": SYSTEM_PROMPT_SUMM},
+#                 {"role": "user", "content": summary_prompt},
+#             ],
+#             api_key=api_key
+#         )
+#         answer = response["choices"][0]["message"]["content"]
+#         answer = json.loads(answer)
+#
+#         # parse answer for job description parts
+#         job_company = answer["company"]
+#         job_position = answer["position"]
+#         job_duties = answer["duties"]
+#         job_requirements = answer["requirements"]
+#
+#         # build rec prompt
+#         rec_prompt = (USER_PROMPT_REC
+#                       .replace(RESUME_TEXT_PLACEHOLDER, resume_text)
+#                       .replace(JOB_COMPANY_TEXT_PLACEHOLDER, job_company)
+#                       .replace(JOB_POSITION_TEXT_PLACEHOLDER, job_position)
+#                       .replace(JOB_DUTIES_TEXT_PLACEHOLDER, '  \n'.join(job_duties))
+#                       .replace(JOB_REQUIREMENTS_TEXT_PLACEHOLDER, '  \n'.join(job_requirements))
+#                       )
+#         logger.debug(rec_prompt)
+#
+#         response_rec = openai.ChatCompletion.create(
+#             model="gpt-3.5-turbo",
+#             messages=[
+#                 {"role": "system", "content": SYSTEM_PROMPT_REC},
+#                 {"role": "user", "content": rec_prompt},
+#             ],
+#             api_key=api_key
+#         )
+#     answer = response_rec["choices"][0]["message"]["content"]
+#     return answer
+
+# streamlit app start
 st.set_page_config(
     page_title="GPR",
     page_icon=":clipboard:",
@@ -60,6 +164,8 @@ if not resume and not resume_text:
 
 # form for submitting job evaluation
 if resume_text:
+    redis_key = hash(resume_text)
+
     with st.form("input"):
         # If the OpenAI API Key is not set as an environment variable, prompt the user for it
         if not api_key:
@@ -68,7 +174,6 @@ if resume_text:
                 type="password",
             )
 
-        # resume_text = st.text_area("Enter Resume:", height=200)
         job_text = st.text_area("Enter Job Description:", height=200)
         submitted = st.form_submit_button("Submit")
 
@@ -78,44 +183,14 @@ if resume_text:
                           )
         logger.debug(summary_prompt)
 
-        # openai
+        # ask openai
         try:
-            with st.spinner(text="Asking openAI..."):
-                response = client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT_SUMM},
-                        {"role": "user", "content": summary_prompt},
-                    ]
-                )
-                answer = response.choices[0].message.content
-                answer = json.loads(answer)
+            answer = ask_openai_chatcompletion(summary_prompt, resume_text)
+            if answer:
+                set_data(redis_key, answer)
+                st.write(load_data(redis_key))
 
-                # parse answer for job description parts
-                job_company = answer["company"]
-                job_position = answer["position"]
-                job_duties = answer["duties"]
-                job_requirements = answer["requirements"]
-
-                rec_prompt = (USER_PROMPT_REC
-                              .replace(RESUME_TEXT_PLACEHOLDER, resume_text)
-                              .replace(JOB_COMPANY_TEXT_PLACEHOLDER, job_company)
-                              .replace(JOB_POSITION_TEXT_PLACEHOLDER, job_position)
-                              .replace(JOB_DUTIES_TEXT_PLACEHOLDER, '  \n'.join(job_duties))
-                              .replace(JOB_REQUIREMENTS_TEXT_PLACEHOLDER, '  \n'.join(job_requirements))
-                              )
-                logger.debug(rec_prompt)
-
-                response_rec = client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT_REC},
-                        {"role": "user", "content": rec_prompt},
-                    ]
-                )
-            answer = response_rec.choices[0].message.content
-            st.write(answer)
-        except RateLimitError as e:
+        except openai.error.RateLimitError as e:
             st.markdown(
                 "It looks like you do not have OpenAI API credits left. Check [OpenAI's usage webpage for more information](https://platform.openai.com/account/usage)"
             )
@@ -123,6 +198,7 @@ if resume_text:
         except Exception as e:
             st.error("An error occurred. Please try again.")
             st.write(e)
+
     elif submitted and ((resume_text == '') or (job_text == '')):
         st.warning("Resume or job description is missing!", icon="⚠️")
 

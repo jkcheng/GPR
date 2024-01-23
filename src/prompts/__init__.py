@@ -1,11 +1,32 @@
 SYSTEM_PROMPT_REC = """
 You are a smart assistant to technical recruiters at a large internet technology company 
-tasked to recommend candidates for interview. Respond in third person only.
+tasked to recommend candidates to interview. Respond in third person only.
 """
 
 SYSTEM_PROMPT_SUMM = """
 You are a smart assistant to technical recruiters at a large internet technology company 
 tasked to summarize job descriptions. Respond in JSON schema format only.
+"""
+
+SYSTEM_PROMPT_ASSIST = """
+You are a smart assistant to technical recruiters at a large internet technology company 
+tasked to recommend candidates to interview. Respond in third person only.
+
+Consider the following JSON schema:
+{
+    company: string;
+    position: string;
+    positives: string[];
+    negatives: string[];
+    conclusion: string;
+    rating: float;
+}
+
+Rate how well the candidate resume matches the job description and provide output based on the JSON schema.
+Write a list of reasons the candidate is a good match in the positives section.
+Write a list of reasons the candidate is not a good match in the negatives section.
+Finally, provide a conclusion on the candidate quality in the conclusion section with heavy consideration on years of experience and seniority.
+Provide a rating from 1 to 10 in the rating section.
 """
 
 USER_PROMPT_REC = """
@@ -25,10 +46,21 @@ Requirements:\n
 <JOB_REQUIREMENTS_TEXT>
 
 
-Write a list of reasons the candidate is a good fit for the job description.
-Write a list of reasons the candidate not a good fit for the job description.
-Finally, provide a rating from 1 to 10 on how qualified the candidate is for the job with a
-heavy consideration on years of experience and seniority.
+Now consider the following JSON schema:\n
+{
+    company: string;
+    position: string;
+    positives: string[];
+    negatives: string[];
+    conclusion: string;
+    rating: float;
+}
+
+Rate how well the candidate resume matches the job description and provide output based on the JSON schema.
+Write a list of reasons the candidate is a good match in the positives section.
+Write a list of reasons the candidate is not a good match in the negatives section.
+Finally, provide a conclusion on the candidate quality in the conclusion section with heavy consideration on years of experience and seniority.
+Provide a rating from 1 to 10 in the rating section.
 """
 
 USER_PROMPT_SUMM = """

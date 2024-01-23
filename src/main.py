@@ -2,7 +2,7 @@ import logging
 import streamlit as st
 # import streamlit_ext as ste
 import os
-import openai
+from openai import OpenAI, RateLimitError
 from prompts import * #SYSTEM_PROMPT_REC, USER_PROMPT_REC,JOB_TEXT_PLACEHOLDER, RESUME_TEXT_PLACEHOLDER
 from doc_utils import extract_text_file
 import json
@@ -46,7 +46,7 @@ st.markdown(
 # )
 
 api_key = os.getenv("OPENAI_API_KEY")
-
+client = OpenAI(api_key=api_key)
 
 resume = st.file_uploader("Choose a file", type=["pdf", "docx", "txt", "rtf"])
 if resume:
@@ -81,15 +81,14 @@ if resume_text:
         # openai
         try:
             with st.spinner(text="Asking openAI..."):
-                response = openai.ChatCompletion.create(
+                response = client.chat.completions.create(
                     model="gpt-3.5-turbo",
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT_SUMM},
                         {"role": "user", "content": summary_prompt},
-                    ],
-                    api_key=api_key
+                    ]
                 )
-                answer = response["choices"][0]["message"]["content"]
+                answer = response.choices[0].message.content
                 answer = json.loads(answer)
 
                 # parse answer for job description parts
@@ -107,17 +106,16 @@ if resume_text:
                               )
                 logger.debug(rec_prompt)
 
-                response_rec = openai.ChatCompletion.create(
+                response_rec = client.chat.completions.create(
                     model="gpt-3.5-turbo",
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT_REC},
                         {"role": "user", "content": rec_prompt},
-                    ],
-                    api_key=api_key
+                    ]
                 )
-            answer = response_rec["choices"][0]["message"]["content"]
+            answer = response_rec.choices[0].message.content
             st.write(answer)
-        except openai.error.RateLimitError as e:
+        except RateLimitError as e:
             st.markdown(
                 "It looks like you do not have OpenAI API credits left. Check [OpenAI's usage webpage for more information](https://platform.openai.com/account/usage)"
             )

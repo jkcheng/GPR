@@ -7,6 +7,7 @@ from prompts import * #SYSTEM_PROMPT_REC, USER_PROMPT_REC,JOB_TEXT_PLACEHOLDER, 
 from doc_utils import extract_text_file
 import json
 import redis
+import time
 
 # logging
 logging.basicConfig(level=logging.WARNING) # set root level logger to warning
@@ -34,18 +35,35 @@ def load_data(user):
     except TypeError:
         return None
 
+def wait_for_run(thread, run, secs):
+    while run.status in ['queued', 'in_progress']:
+        # check for completion and display result
+        run = client.beta.threads.runs.retrieve(
+            thread_id=thread.id,
+            run_id=run.id
+        )
+        # print('run_id:', run.id, 'in_progress')
+        print(f'{run.status.capitalize()}... Please wait.')
+        time.sleep(secs)
+
+    if run.status == 'completed':
+        pass
+    else:
+        print(f"Run NOT COMPLETED: {run.status}")
+
+    return run
+
 def ask_openai_chatcompletion(summary_prompt, resume_text):
     with st.spinner(text="Asking openAI..."):
         # get summary of job desc from openAI
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT_SUMM},
                 {"role": "user", "content": summary_prompt},
-            ],
-            api_key=api_key
+            ]
         )
-        answer = response["choices"][0]["message"]["content"]
+        answer = response.choices[0].message.content
         answer = json.loads(answer)
 
         # parse answer for job description parts
@@ -64,57 +82,76 @@ def ask_openai_chatcompletion(summary_prompt, resume_text):
                       )
         logger.debug(rec_prompt)
 
-        response_rec = openai.ChatCompletion.create(
+        response_rec = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT_REC},
                 {"role": "user", "content": rec_prompt},
-            ],
-            api_key=api_key
+            ]
         )
-    answer = response_rec["choices"][0]["message"]["content"]
+    answer = response_rec.choices[0].message.content
     return answer
 
-# def ask_openai_assistant(summary_prompt, resume_text):
-#     with st.spinner(text="Asking openAI Assistant..."):
-#         # get summary of job desc from openAI
-#         response = openai.ChatCompletion.create(
-#             model="gpt-3.5-turbo",
-#             messages=[
-#                 {"role": "system", "content": SYSTEM_PROMPT_SUMM},
-#                 {"role": "user", "content": summary_prompt},
-#             ],
-#             api_key=api_key
-#         )
-#         answer = response["choices"][0]["message"]["content"]
-#         answer = json.loads(answer)
-#
-#         # parse answer for job description parts
-#         job_company = answer["company"]
-#         job_position = answer["position"]
-#         job_duties = answer["duties"]
-#         job_requirements = answer["requirements"]
-#
-#         # build rec prompt
-#         rec_prompt = (USER_PROMPT_REC
-#                       .replace(RESUME_TEXT_PLACEHOLDER, resume_text)
-#                       .replace(JOB_COMPANY_TEXT_PLACEHOLDER, job_company)
-#                       .replace(JOB_POSITION_TEXT_PLACEHOLDER, job_position)
-#                       .replace(JOB_DUTIES_TEXT_PLACEHOLDER, '  \n'.join(job_duties))
-#                       .replace(JOB_REQUIREMENTS_TEXT_PLACEHOLDER, '  \n'.join(job_requirements))
-#                       )
-#         logger.debug(rec_prompt)
-#
-#         response_rec = openai.ChatCompletion.create(
-#             model="gpt-3.5-turbo",
-#             messages=[
-#                 {"role": "system", "content": SYSTEM_PROMPT_REC},
-#                 {"role": "user", "content": rec_prompt},
-#             ],
-#             api_key=api_key
-#         )
-#     answer = response_rec["choices"][0]["message"]["content"]
-#     return answer
+def ask_openai_assistant(user_data, resume_text, job_text):
+    assistant_id = 'asst_mYXHlF2jnkzu8uNS4YJppD8Y'
+    assistant = client.beta.assistants.retrieve(assistant_id)
+    # redis_key = hash(resume_text)
+
+    with st.spinner(text="Asking openAI Assistant..."):
+        # get summary of job desc from openAI
+        # try to get existing thread for user, create one if it doesn't exist
+        try:
+            thread_id = user_data['thread_id']
+            if thread_id and thread_id != "":
+                thread = client.beta.threads.retrieve(thread_id)
+            else:
+                thread = client.beta.threads.create()
+                # redis_val = f'{{"thread_id": "%s"}}' % thread.id
+                # set_data(redis_key, redis_val)
+
+                # add messages if thread is new
+                resume_prompt = USER_PROMPT_ASSIST_RESUME.replace(RESUME_TEXT_PLACEHOLDER, resume_text)
+                resume_message = client.beta.threads.messages.create(
+                    thread_id=thread.id,
+                    role="user",
+                    content=resume_prompt
+                )
+        except Exception as e:
+            print('an error occurred:', e)
+
+        # logger.debug(thread)
+
+        job_prompt = USER_PROMPT_ASSIST_REC.replace(JOB_TEXT_PLACEHOLDER, job_text)
+        job_message = client.beta.threads.messages.create(
+            thread_id=thread.id,
+            role="user",
+            content=job_prompt
+        )
+
+        # run assistant
+        run = client.beta.threads.runs.create(
+            thread_id=thread.id,
+            assistant_id=assistant.id
+        )
+
+        # check for completion and display result
+        run = wait_for_run(thread, run, 2)
+
+        # Retrieve all messages from the thread
+        messages = client.beta.threads.messages.list(
+            thread_id=thread.id
+        )
+
+        # Get last message as answer
+        msg = messages.data[0]
+        answer = msg.content[0].text.value
+        # for msg in messages.data:
+        #     role = msg.role
+        #     content = msg.content[0].text.value
+        #     print(f"{role.capitalize()}: {content}")
+        #     answer.append(content)
+
+    return answer
 
 # streamlit app start
 st.set_page_config(
@@ -164,7 +201,6 @@ if not resume and not resume_text:
 
 # form for submitting job evaluation
 if resume_text:
-    redis_key = hash(resume_text)
 
     with st.form("input"):
         # If the OpenAI API Key is not set as an environment variable, prompt the user for it
@@ -183,14 +219,52 @@ if resume_text:
                           )
         logger.debug(summary_prompt)
 
+        # create keys for db
+        user_key = hash(resume_text)
+        job_key = hash(job_text)
+
         # ask openai
         try:
-            answer = ask_openai_chatcompletion(summary_prompt, resume_text)
-            if answer:
-                set_data(redis_key, answer)
-                st.write(load_data(redis_key))
+            # get existing thread or create new
+            user_data = load_data(user_key)
+            if user_data and user_data != "None":
+                user_data = json.loads(user_data)
+                # thread_id = user_data['thread_id']
+                # thread = client.beta.threads.retrieve(thread_id)
+            else:
+                # thread = client.beta.threads.create()
+                user_data = f'''{{
+                    "thread_id": "",
+                    "%s": {{
+                        "job_description": "",
+                        "answer": ""
+                    }}
+                }}    
+                ''' % (job_key)
+                logger.debug(user_data)
+                user_data = json.loads(user_data)
+                user_data[str(job_key)]['job_description'] = job_text
 
-        except openai.error.RateLimitError as e:
+            # answer = ask_openai_chatcompletion(user_data, summary_prompt, resume_text)
+            answer = ask_openai_assistant(user_data, resume_text, job_text)
+            # print(answer)
+            # st.write(answer)
+            if answer:
+                if str(job_key) in user_data.keys():
+                    user_data[str(job_key)]["answer"] = answer
+                else:
+                    user_data[str(job_key)] = {
+                        "job_description": "",
+                        "answer": ""
+                    }
+                    user_data[str(job_key)]["job_description"] = job_text
+                    user_data[str(job_key)]["answer"] = answer
+                set_data(str(user_key), json.dumps(user_data))
+                # st.json(json.loads(answer))
+                st.write(json.loads(answer))
+                # logger.debug(user_data)
+
+        except RateLimitError as e:
             st.markdown(
                 "It looks like you do not have OpenAI API credits left. Check [OpenAI's usage webpage for more information](https://platform.openai.com/account/usage)"
             )

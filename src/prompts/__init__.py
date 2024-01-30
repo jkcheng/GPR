@@ -82,6 +82,20 @@ For the duties section provide a list of job duties.
 For the requirements section provide a list of requirements.
 """
 
+USER_PROMPT_ASSIST_RESUME = """
+Consider the following resume that will be rated against future job descriptions:\n
+
+<RESUME_TEXT>
+"""
+
+USER_PROMPT_ASSIST_REC = """
+Now rate resume against the following job description::\n
+
+<JOB_TEXT>
+
+Respond only in JSON format in your instructions.
+"""
+
 RESUME_TEXT_PLACEHOLDER = "<RESUME_TEXT>"
 
 JOB_TEXT_PLACEHOLDER = "<JOB_TEXT>"

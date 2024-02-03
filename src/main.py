@@ -14,16 +14,6 @@ logging.basicConfig(level=logging.WARNING) # set root level logger to warning
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-# redis db
-host = "localhost"
-redis_port = 6379
-
-r = redis.Redis(
-    host=host,
-    port=redis_port,
-    decode_responses=True,
-)
-
 def set_data(key, text):
     r.set(key, text)
 
@@ -153,13 +143,39 @@ def ask_openai_assistant(user_data, resume_text, job_text):
 
     return answer
 
-# streamlit app start
+# streamlit app
 st.set_page_config(
     page_title="GPR",
     page_icon=":clipboard:",
     layout="wide",
     initial_sidebar_state="auto"
 )
+
+# DEBUG: check if environment vars set
+# try:
+#     is_api_key_set = os.environ.get("OPENAI_API_KEY") == st.secrets.get("OPENAI_API_KEY")
+#     is_db_hostname_set = os.environ.get("DB_HOSTNAME") != None
+# except KeyError:
+#     is_api_key_set = False
+#     is_db_hostname_set = False
+# st.write(
+#     "Has environment variables been set:",
+#     "  \n api_key:", is_api_key_set,
+#     "  \n db_hostname:", is_db_hostname_set,
+# )
+
+# redis db
+host = os.environ.get("DB_HOSTNAME")
+redis_port = 6379
+
+r = redis.Redis(
+    host=host,
+    port=redis_port,
+    decode_responses=True,
+)
+
+api_key = os.environ.get("OPENAI_API_KEY")
+client = OpenAI(api_key=api_key)
 
 st.markdown(
     f"""
@@ -176,18 +192,6 @@ st.markdown(
     """
 )
 
-# # check if environment var set
-# try:
-#     is_api_key_set = os.environ["OPENAI_API_KEY"] == st.secrets["OPENAI_API_KEY"]
-# except KeyError:
-#     is_api_key_set = False
-# st.write(
-#     "Has environment variables been set:",
-#     is_api_key_set,
-# )
-
-api_key = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=api_key)
 
 resume = st.file_uploader("Choose a file", type=["pdf", "docx", "txt", "rtf"])
 if resume:

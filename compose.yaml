@@ -5,3 +5,12 @@ services:
         dockerfile: Dockerfile
     ports:
       - 8501:8501
+    env_file:
+      - default.env
+
+  redis:
+    image: "redis:7-alpine"
+    ports:
+      - 6379
+    volumes:
+      - ./tmp/redis_data:/var/lib/redis/data

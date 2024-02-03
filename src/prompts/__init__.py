@@ -89,11 +89,11 @@ Consider the following resume that will be rated against future job descriptions
 """
 
 USER_PROMPT_ASSIST_REC = """
-Now rate resume against the following job description::\n
+Now rate the resume against the following job description:\n
 
 <JOB_TEXT>
 
-Respond only in JSON format in your instructions.
+Respond only in plain JSON format from your instructions without any Markdown or code block formatting. 
 """
 
 RESUME_TEXT_PLACEHOLDER = "<RESUME_TEXT>"

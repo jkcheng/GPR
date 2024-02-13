@@ -8,22 +8,45 @@ from doc_utils import extract_text_file
 import json
 import redis
 import time
+from google.cloud import firestore
+from google.oauth2 import service_account
+import hashlib
+import string
 
 # logging
 logging.basicConfig(level=logging.WARNING) # set root level logger to warning
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-def set_data(key, text):
-    r.set(key, text)
+def hash_text(text):
+    hashed_text = hashlib.md5(text.encode())
+    return hashed_text.hexdigest()
+
+def set_data(key, value):
+    if db_type == 'firestore':
+        doc_ref = db.collection("resumes").document(str(key))
+        # dict_value = json.loads(value)
+        doc_ref.set(value)
+    else: # default to redis
+        json_value = json.dumps(value)
+        db.set(str(key), json_value)
 
 
-def load_data(user):
-    db_value = r.get(user)
-    try:
-        return str(db_value)
-    except TypeError:
-        return None
+def load_data(key):
+    if db_type == 'firestore':
+        doc_ref = db.collection("resumes").document(str(key))
+        db_value = doc_ref.get()
+        if db_value.exists:
+            return json.dumps(db_value.to_dict())
+        else:
+            return None
+
+    else:
+        db_value = db.get(key)
+        try:
+            return str(db_value)
+        except TypeError:
+            return None
 
 def wait_for_run(thread, run, secs):
     while run.status in ['queued', 'in_progress']:
@@ -85,7 +108,6 @@ def ask_openai_chatcompletion(summary_prompt, resume_text):
 def ask_openai_assistant(user_data, resume_text, job_text):
     assistant_id = 'asst_mYXHlF2jnkzu8uNS4YJppD8Y'
     assistant = client.beta.assistants.retrieve(assistant_id)
-    # redis_key = hash(resume_text)
 
     with st.spinner(text="Asking openAI Assistant..."):
         # get summary of job desc from openAI
@@ -96,6 +118,8 @@ def ask_openai_assistant(user_data, resume_text, job_text):
                 thread = client.beta.threads.retrieve(thread_id)
             else:
                 thread = client.beta.threads.create()
+                thread_id = thread.id
+                user_data['thread_id'] = thread_id
                 # redis_val = f'{{"thread_id": "%s"}}' % thread.id
                 # set_data(redis_key, redis_val)
 
@@ -143,7 +167,7 @@ def ask_openai_assistant(user_data, resume_text, job_text):
 
     return answer
 
-# streamlit app
+# streamlit app START
 st.set_page_config(
     page_title="GPR",
     page_icon=":clipboard:",
@@ -164,15 +188,34 @@ st.set_page_config(
 #     "  \n db_hostname:", is_db_hostname_set,
 # )
 
-# redis db
-host = os.environ.get("DB_HOSTNAME")
-redis_port = 6379
+# firestore credentials
 
-r = redis.Redis(
-    host=host,
-    port=redis_port,
-    decode_responses=True,
-)
+# Authenticate to Firestore with the JSON account key.
+db_type = 'firestore'
+secrets_json = json.loads(os.environ.get("FIRESTORE_KEY"))
+creds = service_account.Credentials.from_service_account_info(secrets_json)
+db = firestore.Client(credentials=creds)
+
+# # Create a reference to the Google post.
+# doc_ref = db.collection("resumes").document("1111111111111111111")
+#
+# # Then get the data at that reference.
+# doc = doc_ref.get()
+#
+# # Let's see what we got!
+# st.write("The id is: ", doc.id)
+# st.write("The contents are: ", doc.to_dict())
+
+# # redis db
+# db_type = 'redis'
+# host = os.environ.get("DB_HOSTNAME")
+# redis_port = 6379
+#
+# db = redis.Redis(
+#      host=host,
+#      port=redis_port,
+#      decode_responses=True,
+# )
 
 api_key = os.environ.get("OPENAI_API_KEY")
 client = OpenAI(api_key=api_key)
@@ -224,8 +267,8 @@ if resume_text:
         logger.debug(summary_prompt)
 
         # create keys for db
-        user_key = hash(resume_text)
-        job_key = hash(job_text)
+        user_key = hash_text(resume_text)
+        job_key = hash_text(job_text)
 
         # ask openai
         try:
@@ -251,8 +294,6 @@ if resume_text:
 
             # answer = ask_openai_chatcompletion(user_data, summary_prompt, resume_text)
             answer = ask_openai_assistant(user_data, resume_text, job_text)
-            # print(answer)
-            # st.write(answer)
             if answer:
                 if str(job_key) in user_data.keys():
                     user_data[str(job_key)]["answer"] = answer
@@ -263,8 +304,8 @@ if resume_text:
                     }
                     user_data[str(job_key)]["job_description"] = job_text
                     user_data[str(job_key)]["answer"] = answer
-                set_data(str(user_key), json.dumps(user_data))
-                # st.json(json.loads(answer))
+
+                set_data(user_key, user_data)
                 st.write(json.loads(answer))
                 # logger.debug(user_data)
 
